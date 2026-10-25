@@ -1,0 +1,11 @@
+SishhinDSP Cross-Platform Native Source Package
+===============================================
+Created from the uploaded original website source ZIP.
+Target outputs: Windows x64 VST3+Standalone, macOS universal VST3+Standalone.
+
+Local source checks: PASS (node --check for all JS and bridge contract checks).
+CMake project: created, contains native JUCE DSP and WebView editor.
+GitHub Actions workflow: created and YAML parsed successfully.
+Native compilation: NOT RUN (JUCE dependency downloads and Windows/macOS toolchains unavailable in this environment).
+Use Actions > Build SishhinDSP (Windows + macOS) > Run workflow to compile.
+Any failures in that first CI build need to be resolved based on the job logs.
