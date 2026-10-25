@@ -36,6 +36,7 @@ public:
   void removeIR();
   juce::String getIrName() const { return irFile.getFileName(); }
   float getLevel() const {return level.load();}
+  float getInputLevel() const {return inputLevel.load();}
   float getPitchHz() const;
   double getCurrentSampleRate() const { return getSampleRate(); }
 
@@ -45,6 +46,7 @@ private:
   sishhin::DspEngine dsp;
   juce::File irFile;
   std::atomic<float> level{0};
+  std::atomic<float> inputLevel{0};
   std::array<std::atomic<float>,4096> tunerRing{};
   std::atomic<unsigned int> tunerIndex{0};
   juce::AbstractFifo midiFifo{128};

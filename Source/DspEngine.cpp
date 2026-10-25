@@ -139,7 +139,7 @@ void DspEngine::process(juce::AudioBuffer<float>& b,const Settings& s) {
         x=std::tanh(x*edge)*edgeLevel*tone;
       }
       const float ampOut=std::tanh(x*ampDrive);
-      x=ampOut*(s.master*.12f);
+      x=ampOut*(s.master*.20f); // Gain staging: audible DI at typical interface levels.
       for(int f=0;f<4;f++)x=filters[c][f].tick(x);
       b.setSample(c,i,x);
     }
@@ -181,7 +181,7 @@ void DspEngine::process(juce::AudioBuffer<float>& b,const Settings& s) {
   r.roomSize=juce::jlimit(0.f,1.f,(s.decay-.3f)/7.f);
   r.damping=.4f; r.width=1.f;
   r.wetLevel=s.reverbOn>.5f ? s.reverbMix*.0033f:0.f;
-  r.dryLevel=.5f;
+  r.dryLevel=1.0f; // Keep the amp signal intact when reverb is enabled.
   reverb.setParameters(r);
   if(ch==2) reverb.processStereo(b.getWritePointer(0),b.getWritePointer(1),n);
   else reverb.processMono(b.getWritePointer(0),n);

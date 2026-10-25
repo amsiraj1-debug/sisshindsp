@@ -48,6 +48,30 @@ SishhinDSPAudioProcessorEditor::getResource(const juce::String& path) {
   if(data==nullptr||bytes<=0)return std::nullopt;
   Browser::Resource resource;
   resource.mimeType=mime;
+  if(p=="index.html") {
+    // Inject the native-only bootstrap into JUCE's in-memory index resource.
+    // The website's dist/index.html remains unchanged.
+    int inkBytes=0, creamBytes=0;
+    const auto* ink=SishhinWebData::getNamedResource("logo_ink_png",inkBytes);
+    const auto* cream=SishhinWebData::getNamedResource("logo_cream_png",creamBytes);
+    juce::String bootstrap="<script>window.SISHHIN_FORCED_NATIVE=true;"
+      "document.documentElement.classList.add('sishhin-native-shell');"
+      "window.sishhinNativeLogoUrls=Object.create(null);";
+    if(ink!=nullptr && inkBytes>0)
+      bootstrap+="window.sishhinNativeLogoUrls['logo-ink.png']="+
+        juce::JSON::toString(juce::var("data:image/png;base64,"+
+          juce::Base64::toBase64(ink,static_cast<size_t>(inkBytes))))+";";
+    if(cream!=nullptr && creamBytes>0)
+      bootstrap+="window.sishhinNativeLogoUrls['logo-cream.png']="+
+        juce::JSON::toString(juce::var("data:image/png;base64,"+
+          juce::Base64::toBase64(cream,static_cast<size_t>(creamBytes))))+";";
+    bootstrap+="</script>";
+    auto html=juce::String::fromUTF8(data,bytes).replace("<head>","<head>"+bootstrap);
+    const auto* utf8=html.toRawUTF8();
+    resource.data.resize(std::strlen(utf8));
+    std::memcpy(resource.data.data(),utf8,resource.data.size());
+    return resource;
+  }
   resource.data.resize(static_cast<size_t>(bytes));
   std::memcpy(resource.data.data(),data,static_cast<size_t>(bytes));
   return resource;
@@ -101,7 +125,8 @@ void SishhinDSPAudioProcessorEditor::timerCallback(){
     juce::String(processor.getLevel(),6)+","+
     juce::String(processor.getCurrentSampleRate(),0)+","+
     juce::String(processor.getPitchHz(),2)+","+
-    juce::String(processor.getIrName().quoted())+");");
+    juce::String(processor.getIrName().quoted())+","+
+    juce::String(processor.getInputLevel(),6)+");");
 }
 void SishhinDSPAudioProcessorEditor::chooseIr(){
   chooser=std::make_unique<juce::FileChooser>("Load cabinet impulse response (WAV or AIFF)",

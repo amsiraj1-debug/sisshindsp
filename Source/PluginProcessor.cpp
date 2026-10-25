@@ -52,12 +52,14 @@ SishhinDSPAudioProcessor::SishhinDSPAudioProcessor()
 
 void SishhinDSPAudioProcessor::prepareToPlay(double sampleRate,int maxBlock){
   dsp.prepare(sampleRate,maxBlock,getTotalNumOutputChannels());
-  level.store(0); tunerIndex.store(0);
+  level.store(0); inputLevel.store(0); tunerIndex.store(0);
 }
 void SishhinDSPAudioProcessor::releaseResources(){ dsp.reset(); }
 bool SishhinDSPAudioProcessor::isBusesLayoutSupported(const BusesLayout& layout) const {
   const auto in=layout.getMainInputChannelSet(),out=layout.getMainOutputChannelSet();
-  return (in==juce::AudioChannelSet::mono()||in==juce::AudioChannelSet::stereo()) && in==out;
+  const bool validIn=(in==juce::AudioChannelSet::mono()||in==juce::AudioChannelSet::stereo());
+  const bool validOut=(out==juce::AudioChannelSet::mono()||out==juce::AudioChannelSet::stereo());
+  return validIn && validOut;
 }
 sishhin::Settings SishhinDSPAudioProcessor::collectSettings() const noexcept {
   sishhin::Settings s;
@@ -80,15 +82,28 @@ sishhin::Settings SishhinDSPAudioProcessor::collectSettings() const noexcept {
 void SishhinDSPAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,juce::MidiBuffer& midi){
   juce::ScopedNoDenormals noDenormals;
   const int inputChannels=getTotalNumInputChannels();
-  for(int ch=inputChannels;ch<buffer.getNumChannels();ch++)buffer.clear(ch,0,buffer.getNumSamples());
+  const int outputChannels=getTotalNumOutputChannels();
+  const int samples=buffer.getNumSamples();
+  float inputPeak=0;
   auto w=tunerIndex.load(std::memory_order_relaxed);
-  if(inputChannels>0){
-    for(int i=0;i<buffer.getNumSamples();i++) {
-      tunerRing[static_cast<size_t>(w%tunerRing.size())].store(buffer.getSample(0,i),std::memory_order_relaxed);
+  if(inputChannels>0 && samples>0){
+    for(int i=0;i<samples;i++) {
+      const float inputSample=buffer.getSample(0,i);
+      tunerRing[static_cast<size_t>(w%tunerRing.size())].store(inputSample,std::memory_order_relaxed);
+      inputPeak=juce::jmax(inputPeak,std::abs(inputSample));
+      for(int c=1;c<inputChannels;c++)
+        inputPeak=juce::jmax(inputPeak,std::abs(buffer.getSample(c,i)));
       ++w;
     }
     tunerIndex.store(w,std::memory_order_release);
   }
+  inputLevel.store(inputPeak,std::memory_order_relaxed);
+  // Guitar interfaces are often mono even on a stereo FL Studio mixer channel.
+  // Duplicate the mono DI input before DSP so neither speaker goes silent.
+  if(inputChannels==1 && outputChannels>=2 && buffer.getNumChannels()>=2)
+    buffer.copyFrom(1,0,buffer,0,0,samples);
+  for(int ch=juce::jmax(inputChannels,outputChannels);ch<buffer.getNumChannels();ch++)
+    buffer.clear(ch,0,samples);
   for(const auto meta:midi){
     const auto message=meta.getMessage();
     if(!message.isController()&&!message.isProgramChange())continue;

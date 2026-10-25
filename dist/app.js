@@ -62,10 +62,10 @@ window.sishhinNativeApplyState=(nativeState)=>{
   state=sanitize(nativeState); controls();render();
 };
 window.sishhinNativeMidi=(status,number,value)=>onMidi({data:[status,number,value]});
-window.sishhinNativePulse=(level,sampleRate,pitch,irName)=>{
+window.sishhinNativePulse=(level,sampleRate,pitch,irName,inputPeak)=>{
   if(!window.SISHHIN_NATIVE)return;
   engine.nativeLevel=level;engine.nativePitch=pitch;engine.ctx.sampleRate=sampleRate||48000;
-  $('#sample-rate').textContent=((sampleRate||48000)/1000).toFixed(1)+' kHz';
+  $('#sample-rate').textContent=((sampleRate||48000)/1000).toFixed(1)+' kHz · '+(inputPeak>0.0003?'INPUT OK':'NO INPUT');
   const label=$('#native-ir-label');
   if(label)label.textContent=irName?'Loaded: '+irName:'Algorithmic cabinet active · No custom IR loaded';
 };
@@ -77,5 +77,5 @@ if(window.SISHHIN_NATIVE){
   $('.prototype-note').textContent='Native engine · VST3 / Standalone · For lowest latency use your audio interface and headphones.';
   $('#midi-enable').textContent='Using DAW MIDI input';
   setAudioStatus();
-  window.sishhinNativeEmit('sishhinReady',{});
+  window.sishhinNativeAnnounceReady();
 }
