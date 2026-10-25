@@ -37,6 +37,10 @@ public:
   juce::String getIrName() const { return irFile.getFileName(); }
   float getLevel() const {return level.load();}
   float getInputLevel() const {return inputLevel.load();}
+  int getActiveAmpIndex() const noexcept {
+    const auto* param=apvts.getRawParameterValue("amp");
+    return param!=nullptr ? juce::jlimit(0,2,static_cast<int>(param->load())) : 0;
+  }
   float getPitchHz() const;
   double getCurrentSampleRate() const { return getSampleRate(); }
 

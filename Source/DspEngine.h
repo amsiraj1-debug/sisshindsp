@@ -53,7 +53,10 @@ private:
   float gateEnvelope[2]{};
   // Per-channel preamp filters create genuinely different amplifier voicings.
   float metalLowState[2]{}, thickLowState[2]{};
+  float metalTrebleState[2]{}, monolithFuzzState[2]{};
   float metalHighpassCoeff=0.01f, thickLowpassCoeff=0.02f;
+  float metalTrebleCoeff=0.35f, monolithFuzzCoeff=0.14f;
+  int previousAmp=-1;
   std::array<std::array<Biquad,filterCount>,2> filters;
   std::array<std::vector<float>,2> delayLine, pitchLine;
   double pitchPhase=0;

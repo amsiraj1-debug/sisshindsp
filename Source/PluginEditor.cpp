@@ -126,7 +126,8 @@ void SishhinDSPAudioProcessorEditor::timerCallback(){
     juce::String(processor.getCurrentSampleRate(),0)+","+
     juce::String(processor.getPitchHz(),2)+","+
     juce::String(processor.getIrName().quoted())+","+
-    juce::String(processor.getInputLevel(),6)+");");
+    juce::String(processor.getInputLevel(),6)+","+
+    juce::String(processor.getActiveAmpIndex())+");");
 }
 void SishhinDSPAudioProcessorEditor::chooseIr(){
   chooser=std::make_unique<juce::FileChooser>("Load cabinet impulse response (WAV or AIFF)",

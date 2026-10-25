@@ -40,7 +40,11 @@ void DspEngine::prepare(double sampleRate, int maxBlock, int channelCount) {
   metalHighpassCoeff=static_cast<float>(1.0-std::exp(
     -juce::MathConstants<double>::twoPi*115.0/sr));
   thickLowpassCoeff=static_cast<float>(1.0-std::exp(
-    -juce::MathConstants<double>::twoPi*220.0/sr));
+    -juce::MathConstants<double>::twoPi*240.0/sr));
+  metalTrebleCoeff=static_cast<float>(1.0-std::exp(
+    -juce::MathConstants<double>::twoPi*5500.0/sr));
+  monolithFuzzCoeff=static_cast<float>(1.0-std::exp(
+    -juce::MathConstants<double>::twoPi*1650.0/sr));
   delaySize=static_cast<size_t>(std::ceil(sr*2.2));
   pitchSize=static_cast<size_t>(std::ceil(sr*.18));
   for(int c=0;c<2;c++) {
@@ -52,11 +56,13 @@ void DspEngine::prepare(double sampleRate, int maxBlock, int channelCount) {
   reset();
 }
 void DspEngine::reset() {
-  writePos=0; pitchWrite=0; pitchPhase=0;
+  writePos=0; pitchWrite=0; pitchPhase=0; previousAmp=-1;
   for(int c=0;c<2;c++) {
     gateEnvelope[c]=0;
     metalLowState[c]=0;
     thickLowState[c]=0;
+    metalTrebleState[c]=0;
+    monolithFuzzState[c]=0;
     std::fill(delayLine[c].begin(),delayLine[c].end(),0);
     std::fill(pitchLine[c].begin(),pitchLine[c].end(),0);
     for(auto& f:filters[c]) f.reset();
@@ -79,25 +85,31 @@ void DspEngine::updateFilters(const Settings& s) {
     auto& f=filters[c];
     // Porcelain: brilliant, open cleans. Katana: tight lows and upper-mid bite.
     // Monolith: substantial bass/low mids, rolled-off top-end for weight.
-    const float bassTrim=voice==0?0.0f:voice==1?-2.5f:5.0f;
-    const float midTrim=voice==0?-.5f:voice==1?3.0f:2.6f;
-    const float trebleTrim=voice==0?2.0f:voice==1?1.5f:-4.0f;
-    const float presenceTrim=voice==0?1.4f:voice==1?3.0f:-2.0f;
+    const float bassTrim=voice==0?1.5f:voice==1?-4.0f:8.0f;
+    const float midTrim=voice==0?-1.0f:voice==1?4.7f:5.0f;
+    const float trebleTrim=voice==0?2.8f:voice==1?4.0f:-8.5f;
+    const float presenceTrim=voice==0?2.2f:voice==1?4.5f:-5.5f;
     f[0].configure(Biquad::Type::lowShelf,voice==2?155.0f:170.0f,.707f,
                    (s.bass-5)*1.8f+bassTrim,sr);
-    f[1].configure(Biquad::Type::peak,voice==2?350.0f:voice==1?1050.0f:800.0f,.8f,
+    f[1].configure(Biquad::Type::peak,voice==2?325.0f:voice==1?1800.0f:800.0f,.8f,
                    (s.mid-5)*1.8f+midTrim,sr);
     f[2].configure(Biquad::Type::highShelf,voice==0?3000.0f:2600.0f,.707f,
                    (s.treble-5)*1.8f+trebleTrim,sr);
-    f[3].configure(Biquad::Type::peak,voice==1?3700.0f:voice==2?2300.0f:5100.0f,.8f,
+    f[3].configure(Biquad::Type::peak,voice==1?3700.0f:voice==2?1900.0f:5100.0f,.8f,
                    (s.presence-5)*1.4f+presenceTrim,sr);
+    // Each head also has a distinct speaker response, regardless of the
+    // selected cabinet. Custom IR files are still respected separately.
     f[4].configure(Biquad::Type::highPass,
-                   cabHp[cabinet]+(voice==1?25.0f:0.0f),.707f,0,sr);
-    f[5].configure(Biquad::Type::lowPass,
-                   juce::jmin(cabLp[cabinet],voice==2?4900.0f:voice==1?6500.0f:9000.0f),
+                   voice==0?cabHp[cabinet]*.75f:voice==1?cabHp[cabinet]+35.0f:cabHp[cabinet]*.9f,
                    .707f,0,sr);
-    f[6].configure(Biquad::Type::peak,voice==2?135.0f:cabBody[cabinet],1.1f,
-                   voice==2?4.5f:voice==1?1.3f:2.0f,sr);
+    f[5].configure(Biquad::Type::lowPass,
+                   juce::jmin(cabLp[cabinet],voice==0?8800.0f:voice==1?5800.0f:3300.0f),
+                   voice==1?.62f:.707f,0,sr);
+    f[6].configure(Biquad::Type::peak,
+                   voice==0?165.0f:voice==1?1950.0f:135.0f,
+                   voice==0?1.1f:voice==1?.85f:.8f,
+                   voice==0?1.0f:voice==1?2.2f:7.0f,sr);
+    juce::ignoreUnused(cabBody);
     for(int i=0;i<9;i++) f[7+i].configure(Biquad::Type::peak,hz[i],1.2f,s.eq[i],sr);
     f[16].configure(Biquad::Type::highPass,s.hp,.707f,0,sr);
     f[17].configure(Biquad::Type::lowPass,s.lp,.707f,0,sr);
@@ -135,7 +147,18 @@ void DspEngine::process(juce::AudioBuffer<float>& b,const Settings& s) {
   updateFilters(s);
   const float inputGain=db(s.input),outputGain=db(s.output);
   const auto voice=juce::jlimit(0,2,static_cast<int>(s.amp));
-  // Each amplifier has a separate transfer function, not merely a drive scalar.
+  if(voice!=previousAmp) {
+    // Avoid reusing a clean amp filter's old state as a high-gain feedback
+    // state during model switching. No buffer allocation on the audio thread.
+    previousAmp=voice;
+    for(int c=0;c<channels;c++) {
+      metalLowState[c]=thickLowState[c]=0;
+      metalTrebleState[c]=monolithFuzzState[c]=0;
+      for(auto& filter:filters[c])filter.reset();
+    }
+  }
+  // Each amplifier has a distinct analogue-inspired transfer function,
+  // gain topology and cabinet response, not merely a drive scalar.
   const float preBoost=(s.weightOn>.5f?1+s.boost*.28f:1);
   const float edge=(s.edgeOn>.5f?1+s.drive*.7f:0);
   const float edgeLevel=s.edgeOn>.5f?.35f+s.level*.14f:1;
@@ -158,28 +181,37 @@ void DspEngine::process(juce::AudioBuffer<float>& b,const Settings& s) {
         const float tone=juce::jlimit(.2f,1.f,toneLowpass/10000.f);
         x=std::tanh(x*edge)*edgeLevel*tone;
       }
-      // Keep the low-frequency tracking filters warm as models change.
       metalLowState[c]+=metalHighpassCoeff*(x-metalLowState[c]);
       thickLowState[c]+=thickLowpassCoeff*(x-thickLowState[c]);
       if(voice==0) {
-        // PORCELAIN: preserve pick attack and chord definition. Mild warm
-        // limiting only on high peaks, rather than clipping every note.
-        const float cleanDrive=.70f+s.gain*.23f;
-        const float clean=x*cleanDrive;
-        x=(clean*.88f+std::tanh(clean*1.12f)*.12f)*(s.master*.27f);
+        // PORCELAIN / CLEAN: basically linear below the peak knee. No
+        // high-gain cascades, so string dynamics and chords remain defined.
+        const float clean=x*(2.0f+.14f*s.gain);
+        const float amplitude=std::abs(clean);
+        const float clipped=amplitude<.90f?amplitude:
+          .90f+std::tanh((amplitude-.90f)*.8f)*.27f;
+        x=std::copysign(clipped,clean)*(s.master*.26f);
       } else if(voice==1) {
-        // KATANA: high-pass *before* high gain, then two non-linear preamp
-        // stages, with an upper-mid emphasis in the post-stage tone stack.
-        const float tight=x-.87f*metalLowState[c];
-        const float first=std::tanh(tight*(2.1f+s.gain*.72f));
-        const float second=std::tanh(first*(2.8f+s.gain*.39f)+tight*.16f);
-        x=(second*.95f+tight*.05f)*(s.master*.17f);
+        // KATANA / METAL: tight bass cut *before* a high-gain preamp. Two
+        // asymmetric clipped stages produce aggressive sustained harmonics.
+        const float tight=x-.93f*metalLowState[c];
+        const float drive=14.0f+6.0f*s.gain;
+        const float first=std::tanh(tight*drive);
+        const float second=std::tanh((first+.075f)*3.8f)-.075f;
+        const float brutal=std::tanh((second-.035f)*2.9f)+.035f;
+        metalTrebleState[c]+=metalTrebleCoeff*(brutal-metalTrebleState[c]);
+        x=(metalTrebleState[c]*.92f+tight*.08f)*(s.master*.20f);
       } else {
-        // MONOLITH: wide, bass-heavy preamp, slow low-mid bloom and soft
-        // saturating tube-style compression. Denser but less sharp than metal.
-        const float fat=x+.63f*thickLowState[c];
-        const float warm=std::tanh(fat*(1.20f+s.gain*.48f));
-        x=(warm*.84f+fat*.16f)*(s.master*.22f);
+        // MONOLITH / THICK: fuzzy hard clipping, bass-bloom parallel path
+        // and 1.65kHz fuzz smoothing yield heavy, dark doom-rock sustain.
+        // Deliberately different from the articulate Katana clip stages.
+        const float fat=x+.95f*thickLowState[c];
+        const float drive=4.5f+2.1f*s.gain;
+        const float rawFuzz=juce::jlimit(-.55f,.55f,fat*drive);
+        monolithFuzzState[c]+=monolithFuzzCoeff*
+                               (rawFuzz-monolithFuzzState[c]);
+        const float bottom=std::tanh(thickLowState[c]*7.0f);
+        x=(monolithFuzzState[c]*1.55f+bottom*.26f)*(s.master*.24f);
       }
       for(int f=0;f<4;f++)x=filters[c][f].tick(x);
       b.setSample(c,i,x);

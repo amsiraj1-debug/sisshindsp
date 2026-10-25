@@ -84,10 +84,13 @@ window.sishhinNativeApplyState=(nativeState)=>{
   state=sanitize(nativeState); controls();render();
 };
 window.sishhinNativeMidi=(status,number,value)=>onMidi({data:[status,number,value]});
-window.sishhinNativePulse=(level,sampleRate,pitch,irName,inputPeak)=>{
+window.sishhinNativePulse=(level,sampleRate,pitch,irName,inputPeak,activeAmp)=>{
   if(!window.SISHHIN_NATIVE)return;
   engine.nativeLevel=level;engine.nativePitch=pitch;engine.ctx.sampleRate=sampleRate||48000;
-  $('#sample-rate').textContent=((sampleRate||48000)/1000).toFixed(1)+' kHz · '+(inputPeak>0.0003?'INPUT OK':'NO INPUT');
+  const voiceLabels=['CLEAN','METAL','THICK'];
+  const active=voiceLabels[activeAmp] || 'UNKNOWN';
+  $('#sample-rate').textContent=((sampleRate||48000)/1000).toFixed(1)+' kHz · '+
+    active+' · '+(inputPeak>0.0003?'INPUT OK':'NO INPUT');
   const label=$('#native-ir-label');
   if(label)label.textContent=irName?'Loaded: '+irName:'Algorithmic cabinet active · No custom IR loaded';
 };
