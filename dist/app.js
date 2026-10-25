@@ -11,6 +11,16 @@ function validPreset(p){return p&&typeof p.name==='string'&&p.name.length<=64&&p
 function sanitize(s){const result=structuredClone(defaults);for(const [k,v] of Object.entries(s)){if(specs[k]&&Number.isFinite(v)){result[k]=Math.min(specs[k][2],Math.max(specs[k][1],v))}else if(typeof defaults[k]==='boolean'&&typeof v==='boolean')result[k]=v}for(const k of ['amp','cab','micA','micB'])if(Number.isInteger(s[k])&&s[k]>=0&&s[k]<=2)result[k]=s[k];if(['mono','stereo'].includes(s.mode))result.mode=s.mode;if(Array.isArray(s.eq)&&s.eq.length===9)result.eq=s.eq.map(v=>Number.isFinite(v)?Math.max(-12,Math.min(12,v)):0);for(const k of ['hp','lp'])if(Number.isFinite(s[k]))result[k]=Math.max(k==='hp'?20:3000,Math.min(k==='hp'?300:20000,s[k]));return result}
 function presetUuid(){return globalThis.crypto?.randomUUID?.() || ('local-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2))}
 function ampLogoSrc(filename){return window.sishhinNativeLogoUrls?.[filename] || 'assets/'+filename}
+// Last-resort text fallback for restricted or damaged browser image decoders.
+// Normal builds always render the supplied Japanese PNG (not this text).
+document.addEventListener('error',event=>{
+  const img=event.target;
+  if(!(img instanceof HTMLImageElement)||!img.matches('img.amp-logo'))return;
+  const fallback=document.createElement('span');
+  fallback.className='amp-logo-fallback';
+  fallback.textContent='失神';
+  img.replaceWith(fallback);
+},true);
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function format(k){let v=state[k],unit=specs[k][4];return (['input','output','micLevelA','micLevelB'].includes(k)&&v>0?'+':'')+(Number.isInteger(v)?v:v.toFixed(specs[k][3]<.1?2:1))+(unit?' '+unit:'')}
 function knob(k,toggle){let [name,min,max,step]=specs[k];return `<div class="knob-wrap" data-knob="${k}"><div class="knob-top"><span class="knob-label">${name.toUpperCase()}</span>${toggle?`<button class="toggle ${state[toggle]?'on':''}" data-toggle="${toggle}" aria-label="${name} enabled" aria-pressed="${state[toggle]}"></button>`:''}</div><div class="knob" style="--rotation:${-135+(state[k]-min)/(max-min)*270}deg"><i></i><input type="range" aria-label="${name} ${k.endsWith('A')?'mic A':k.endsWith('B')?'mic B':''}" data-param="${k}" min="${min}" max="${max}" step="${step}" value="${state[k]}"></div><output class="knob-value">${format(k)}</output></div>`}
@@ -36,7 +46,19 @@ function storePresets(){try{localStorage.setItem('sishhin-presets',JSON.stringif
 document.addEventListener('input',e=>{if(e.target.dataset.param)setParam(e.target.dataset.param,+e.target.value);if(e.target.dataset.eq!==undefined){let i=+e.target.dataset.eq;state.eq[i]=+e.target.value;$('#eq-'+i).textContent=(state.eq[i]>0?'+':'')+state.eq[i]+' dB';changed()}});
 document.addEventListener('change',e=>{if(e.target.dataset.select){state[e.target.dataset.select]=+e.target.value;changed()}});
 let drag=null;document.addEventListener('pointerdown',e=>{const k=e.target.dataset.param;if(!k)return;e.preventDefault();drag={k,y:e.clientY,v:state[k],id:e.pointerId,target:e.target};e.target.setPointerCapture(e.pointerId);e.target.focus()});document.addEventListener('pointermove',e=>{if(!drag)return;let [_,min,max,step]=specs[drag.k];let v=Math.max(min,Math.min(max,Math.round((drag.v+(drag.y-e.clientY)*(max-min)/(e.shiftKey?1200:180))/step)*step));setParam(drag.k,+v.toFixed(3))});document.addEventListener('pointerup',()=>drag=null);document.addEventListener('pointercancel',()=>drag=null);document.addEventListener('dblclick',e=>{if(e.target.dataset.param)setParam(e.target.dataset.param,defaults[e.target.dataset.param])});
-document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const d=b.dataset;if(d.view){view=d.view;render()}if(d.ir==='load')window.sishhinNativeEmit('sishhinIR',{});if(d.ir==='clear')window.sishhinNativeEmit('sishhinClearIR',{});if(d.amp!==undefined){state.amp=+d.amp;changed();render()}if(d.cab!==undefined){state.cab=+d.cab;changed();render()}if(d.toggle){state[d.toggle]=!state[d.toggle];changed();controls();render()}if(d.mode){state.mode=d.mode;changed();controls()}if(d.preset){applyPreset([...presets,...userPresets].find(p=>p.id===d.preset));$('#presets-dialog').close()}if(d.filter){filter=d.filter;$$('[data-filter]').forEach(b=>b.classList.toggle('active',b.dataset.filter===filter));presetList()}if(d.delete){userPresets=userPresets.filter(p=>p.id!==d.delete);storePresets();presetList();updatePresetLabel()}if(b.classList.contains('close'))b.closest('dialog').close()});
+document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const d=b.dataset;if(d.view){view=d.view;render()}if(d.ir==='load')window.sishhinNativeEmit('sishhinIR',{});if(d.ir==='clear')window.sishhinNativeEmit('sishhinClearIR',{});if(d.amp!==undefined){
+    const selected=+d.amp;
+    if(selected!==state.amp && selected>=0 && selected<3){
+      // Each head starts from its characteristic gain and pedal voicing,
+      // without carrying an old metal boost onto the clean amplifier.
+      // Global input/output, MIDI, and post effects stay intact.
+      const voice=presets[selected*24].state;
+      for(const key of ['amp','gain','bass','mid','treble','presence','cab',
+                         'edgeOn','weightOn','bloomOn','drive','boost'])
+        state[key]=voice[key];
+      changed();render();
+    }
+  }if(d.cab!==undefined){state.cab=+d.cab;changed();render()}if(d.toggle){state[d.toggle]=!state[d.toggle];changed();controls();render()}if(d.mode){state.mode=d.mode;changed();controls()}if(d.preset){applyPreset([...presets,...userPresets].find(p=>p.id===d.preset));$('#presets-dialog').close()}if(d.filter){filter=d.filter;$$('[data-filter]').forEach(b=>b.classList.toggle('active',b.dataset.filter===filter));presetList()}if(d.delete){userPresets=userPresets.filter(p=>p.id!==d.delete);storePresets();presetList();updatePresetLabel()}if(b.classList.contains('close'))b.closest('dialog').close()});
 $('#preset-open').onclick=()=>{presetList();$('#presets-dialog').showModal()};$('#preset-search').oninput=presetList;
 for(const [id,dir] of [['prev',-1],['next',1]])$('#'+id).onclick=()=>{const all=[...presets,...userPresets];let i=all.findIndex(p=>p.id===currentId);applyPreset(all[(i+dir+all.length)%all.length])};
 $('#save').onclick=()=>{$('#save-dialog').showModal();$('#save-name').focus()};$('#save-form').onsubmit=e=>{e.preventDefault();const name=$('#save-name').value.trim();if(!name)return;const p={id:'user-'+presetUuid(),name,category:'User',state:structuredClone(state)};userPresets.push(p);if(!storePresets()){userPresets.pop();return}currentId=p.id;dirty=false;updatePresetLabel();$('#save-dialog').close();toast('Preset saved to this browser')};

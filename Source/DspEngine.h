@@ -51,6 +51,9 @@ private:
   int channels=2, writePos=0, pitchWrite=0;
   size_t delaySize=88200, pitchSize=8192;
   float gateEnvelope[2]{};
+  // Per-channel preamp filters create genuinely different amplifier voicings.
+  float metalLowState[2]{}, thickLowState[2]{};
+  float metalHighpassCoeff=0.01f, thickLowpassCoeff=0.02f;
   std::array<std::array<Biquad,filterCount>,2> filters;
   std::array<std::vector<float>,2> delayLine, pitchLine;
   double pitchPhase=0;

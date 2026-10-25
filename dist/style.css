@@ -126,3 +126,10 @@ html.sishhin-native-shell .below,
 html.sishhin-native-shell .prototype-note { display:none!important; }
 html.sishhin-native-shell body main { margin:0; padding:0; max-width:none; height:100vh; height:100dvh; width:100%; }
 html.sishhin-native-shell body .studio { border-radius:0; border:0; }
+
+/* Native/WKWebView fallback if PNG decoding is unavailable. */
+.amp-logo-fallback{font-family:"Yu Gothic","Hiragino Kaku Gothic ProN","Meiryo","Noto Sans CJK JP",sans-serif;
+font-size:76px;font-weight:1000;line-height:1;letter-spacing:-.1em;
+color:#151915;position:relative;z-index:2;text-align:center}
+.amp-v2 .amp-logo-fallback,.amp-v3 .amp-logo-fallback{color:#ece8d4}
+@media(max-width:800px){.amp-logo-fallback{font-size:55px}}
